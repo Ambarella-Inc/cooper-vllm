@@ -20,8 +20,8 @@ from vllm.model_executor import set_random_seed
 from vllm.sequence import ExecuteModelRequest
 from vllm.utils import STR_DTYPE_TO_TORCH_DTYPE, bind_kv_cache
 from vllm.worker.cpu_enc_dec_model_runner import CPUEncoderDecoderModelRunner
-from vllm.worker.cpu_model_runner import CPUModelRunner, CPUModelRunnerBase
-from vllm.worker.cpu_pooling_model_runner import CPUPoolingModelRunner
+from vllm.worker.cpu_model_runner import CPUModelRunner, CPUModelAmbaRunner, CPUModelRunnerBase
+from vllm.worker.cpu_pooling_model_runner import CPUPoolingModelRunner, CPUPoolingModelAmbaRunner
 from vllm.worker.worker_base import (LocalOrDistributedWorkerBase, WorkerBase,
                                      WorkerInput)
 
@@ -179,6 +179,14 @@ class CPUWorker(LocalOrDistributedWorkerBase):
             ModelRunnerClass = CPUPoolingModelRunner
         elif self.model_config.is_encoder_decoder:
             ModelRunnerClass = CPUEncoderDecoderModelRunner
+
+        if "amba" in self.model_config.model_impl:
+            if self.model_config.runner_type == "pooling":
+                ModelRunnerClass = CPUPoolingModelAmbaRunner
+            else:
+                ModelRunnerClass = CPUModelAmbaRunner
+            logger.info(f"{self.__module__} ModelRunnerClass: {ModelRunnerClass}")
+
         self.model_runner: CPUModelRunnerBase = ModelRunnerClass(
             vllm_config=vllm_config,
             kv_cache_dtype=kv_cache_dtype,
@@ -417,6 +425,7 @@ class CPUWorker(LocalOrDistributedWorkerBase):
             cpu_count = psutil.cpu_count(logical=False)
             cpus_allow_list = psutil.Process().cpu_affinity()
             numa_size = info.get_num_configured_nodes()
+            numa_size = max(numa_size, 1)  #fixme: change by amba
             cpu_count_per_numa = cpu_count // numa_size
             num_of_reserved_cpu = min(envs.VLLM_CPU_NUM_OF_RESERVED_CPU,
                                       cpu_count_per_numa // 2)

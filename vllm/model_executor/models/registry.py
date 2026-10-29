@@ -207,7 +207,11 @@ _MULTIMODAL_MODELS = {
     "PixtralForConditionalGeneration": ("pixtral", "PixtralForConditionalGeneration"),  # noqa: E501
     "QwenVLForConditionalGeneration": ("qwen_vl", "QwenVLForConditionalGeneration"),  # noqa: E501
     "Qwen2VLForConditionalGeneration": ("qwen2_vl", "Qwen2VLForConditionalGeneration"),  # noqa: E501
+    "Qwen3VLForConditionalGeneration": ("qwen3_vl", "Qwen3VLForConditionalGeneration"),  # noqa: E501
+    "Qwen3_5ForConditionalGeneration": ("qwen3_5", "Qwen3_5ForConditionalGeneration"),
     "Qwen2_5_VLForConditionalGeneration": ("qwen2_5_vl", "Qwen2_5_VLForConditionalGeneration"),  # noqa: E501
+    "Lfm2VlForConditionalGeneration": ("lfm2_vl", "Lfm2VlForConditionalGeneration"),
+    "Lfm2AudioForConditionalGeneration": ("lfm2_audio", "Lfm2AudioForConditionalGeneration"),  # noqa: E501
     "Qwen2AudioForConditionalGeneration": ("qwen2_audio", "Qwen2AudioForConditionalGeneration"),  # noqa: E501
     "Qwen2_5OmniModel": ("qwen2_5_omni_thinker", "Qwen2_5OmniThinkerForConditionalGeneration"),  # noqa: E501
     "Qwen2_5OmniForConditionalGeneration": ("qwen2_5_omni_thinker", "Qwen2_5OmniThinkerForConditionalGeneration"),  # noqa: E501
@@ -236,6 +240,12 @@ _SPECULATIVE_DECODING_MODELS = {
 _TRANSFORMERS_MODELS = {
     "TransformersForCausalLM": ("transformers", "TransformersForCausalLM"),
 }
+
+_TRANSFORMERS_AMBA_EXT_MODELS = {
+    "TransformersAmbaExtForCausalLM": ("transformers_amba_ext", "TransformersAmbaExtForCausalLM"),
+    "TransformersAmbaExtForVLM": ("transformers_amba_ext_vlm", "TransformersAmbaExtForVLM"),
+}
+
 # yapf: enable
 
 _VLLM_MODELS = {
@@ -245,6 +255,7 @@ _VLLM_MODELS = {
     **_MULTIMODAL_MODELS,
     **_SPECULATIVE_DECODING_MODELS,
     **_TRANSFORMERS_MODELS,
+    **_TRANSFORMERS_AMBA_EXT_MODELS,
 }
 
 # This variable is used as the args for subprocess.run(). We

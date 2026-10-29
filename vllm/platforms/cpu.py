@@ -156,6 +156,13 @@ class CpuPlatform(Platform):
                     "vllm.spec_decode.spec_decode_worker.create_spec_worker"
                 parallel_config.sd_worker_cls = \
                     "vllm.worker.cpu_worker.CPUWorker"
+            # Check if using Ambarella external accelerator model
+            elif (model_config.model_impl is not None
+                  and "amba" in str(model_config.model_impl)):
+                parallel_config.worker_cls = \
+                    "vllm.worker.cpu_worker_amba.CPUWorkerAmba"
+                logger.info("Using CPUWorkerAmba for Ambarella accelerator model "
+                           "(KV cache managed by device)")
             else:
                 if envs.VLLM_USE_V1:
                     parallel_config.worker_cls = \

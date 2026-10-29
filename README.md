@@ -1,165 +1,354 @@
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/vllm-project/vllm/main/docs/assets/logos/vllm-logo-text-dark.png">
-    <img alt="vLLM" src="https://raw.githubusercontent.com/vllm-project/vllm/main/docs/assets/logos/vllm-logo-text-light.png" width=55%>
-  </picture>
-</p>
 
-<h3 align="center">
-Easy, fast, and cheap LLM serving for everyone
-</h3>
+<h1 align="center">Enable vLLM on Ambarella DevKit</h1>
 
-<p align="center">
-| <a href="https://docs.vllm.ai"><b>Documentation</b></a> | <a href="https://blog.vllm.ai/"><b>Blog</b></a> | <a href="https://arxiv.org/abs/2309.06180"><b>Paper</b></a> | <a href="https://x.com/vllm_project"><b>Twitter/X</b></a> | <a href="https://discuss.vllm.ai"><b>User Forum</b></a> | <a href="https://slack.vllm.ai"><b>Developer Slack</b></a> |
-</p>
+# 📝Introduction
+This document describes how to enable and run **vision large language model (vLLM)** on the **Ambarella DevKit** platform.
+
+The integration is based on the **central processing unit (CPU) backend of vLLM** combined with Ambarella’s customized `transformers_amba_ext` and `transformers_amba_ext_vlm` implementations. With this setup, users can:
+
+- Serve an **OpenAI-compatible application programming interface (API)** with **LLM**, **embedding**, **vision-language (VLM)**, and **audio** models on Ambarella DevKit
+- Run inference using **Python-based workflows** without graphics processing unit (GPU) dependencies
+- Reduce CPU memory pressure through **custom KV-cache optimizations** for Ambarella systems on chip (SoCs)
+
+This guide targets developers who want to evaluate or deploy large models on Ambarella DevKit boards using vLLM while keeping compatibility with existing OpenAI-style clients.
+
+---
+
+# 📦 Installation
+1. Create a Python environment.
+vLLM currently supports **Python 3.9 to 3.12**. Ambarella recommends using `python3` or `uv` to create an isolated environment.
+    ```bash
+    # Use python3
+    (board)# python3 -m venv venv_vllm
+    (board)# source venv_vllm/bin/activate
+    ```
+    or
+    ```bash
+    # Use uv
+    (board)# uv venv venv_vllm --python 3.12 --seed
+    (board)# source venv_vllm/bin/activate
+    ```
+
+2. Install vLLM (CPU backend).
+    Before installing vLLM, read the official vLLM CPU [installation guide](
+https://docs.vllm.ai/en/v0.9.2/getting_started/installation/cpu.html) then install the required system and Python dependencies:
+    ```bash
+    (board)# cd $VLLM_PROJECT
+
+    (board)# pip3 install --upgrade pip
+    (board)# pip3 install "cmake>=3.26" wheel packaging ninja "setuptools-scm>=8" numpy
+    (board)# pip3 install filelock==3.16.1 setuptools==77.0.3 transformers==4.52.4 huggingface-hub==0.36.0
+    (board)# pip3 install dist/transformers_amba_ext-<version>.<date>-py3-none-any.whl
+    (board)# pip3 install -v -r requirements/cpu.txt --extra-index-url https://download.pytorch.org/whl/cpu
+
+    (board)# SETUPTOOLS_SCM_PRETEND_VERSION=0.9.2 VLLM_TARGET_DEVICE=cpu python setup.py install
+    (board)# vllm --version
+    0.9.2.dev0+gb6553be1b.d20250820
+    ```
+    **Notes:**
+    - Users can download the `transformers_amba_ext` source code from the [Ambarella GitHub](https://github.com/Ambarella-Inc/transformers_amba_ext) page and then compile the wheel package based on the `README.md` in the package.
+    - Some advantages in public vLLM, such as `page-attention` and `FlashAttention`, are not supported in `cooper_vllm`.
 
 ---
 
-*Latest News* 🔥
-- [2025/05] We hosted [NYC vLLM Meetup](https://lu.ma/c1rqyf1f)! Please find the meetup slides [here](https://docs.google.com/presentation/d/1_q_aW_ioMJWUImf1s1YM-ZhjXz8cUeL0IJvaquOYBeA/edit?usp=sharing).
-- [2025/05] vLLM is now a hosted project under PyTorch Foundation! Please find the announcement [here](https://pytorch.org/blog/pytorch-foundation-welcomes-vllm/).
-- [2025/04] We hosted [Asia Developer Day](https://www.sginnovate.com/event/limited-availability-morning-evening-slots-remaining-inaugural-vllm-asia-developer-day)! Please find the meetup slides from the vLLM team [here](https://docs.google.com/presentation/d/19cp6Qu8u48ihB91A064XfaXruNYiBOUKrBxAmDOllOo/edit?usp=sharing).
-- [2025/01] We are excited to announce the alpha release of vLLM V1: A major architectural upgrade with 1.7x speedup! Clean code, optimized execution loop, zero-overhead prefix caching, enhanced multimodal support, and more. Please check out our blog post [here](https://blog.vllm.ai/2025/01/27/v1-alpha-release.html).
+# 🔥Quick Start
+## Run vLLM with the DeepSeek-R1-Distill-Qwen-7B Model
+1. Download the model artifacts and additional configuration files.
+    Users must download the model artifacts from [Ambarella's Deepseek-R1-Distill-Qwen](https://huggingface.com/Ambarella/Deepseek-R1-Distill-Qwen) and additional configuration files listed below from [DeepSeek's DeepSeek-R1-Distill-Qwen-7B](https://huggingface.com/deepseek-ai/DeepSeek-R1-Distill-Qwen-7B) on Hugging Face to the model directory.
+    ```bash
+    (board)# ls <model_path_deepseek_7B>
+      config.json
+      tokenizer_config.json
+      generation_config.json
+    ```
+2. Run vLLM as an OpenAI-compatible server.
+    ```bash
+    ## Optional: vLLM_0.9.2 supports the V0 architecture on the CPU
+    (board)# export VLLM_CONFIG_ROOT=/tmp/
+    (board)# export VLLM_CPU_OMP_THREADS_BIND="all"
+    (board)# export VLLM_USE_V1=0
+    (board)# export VLLM_NO_NUMA=1
 
-<details>
-<summary>Previous News</summary>
+    (board)# cd $WORKSPACE
+    (board)# vllm serve <model_path_deepseek_7B>/ \
+      --served-model-name deepseek_7B                                   \
+      --host 127.0.0.1                                                  \
+      --port 8000                                                       \
+      --api-key EMPTY                                                   \
+      --chat-template vllm/examples/tool_chat_template_deepseekr1.jinja \
+      --max_model_len 32768                                             \
+      --model-impl transformers_amba_ext                                \
+      --load-format dummy                                               \
+      --swap-space 1
+    ```
 
-- [2025/03] We hosted [vLLM x Ollama Inference Night](https://lu.ma/vllm-ollama)! Please find the meetup slides from the vLLM team [here](https://docs.google.com/presentation/d/16T2PDD1YwRnZ4Tu8Q5r6n53c5Lr5c73UV9Vd2_eBo4U/edit?usp=sharing).
-- [2025/03] We hosted [the first vLLM China Meetup](https://mp.weixin.qq.com/s/n77GibL2corAtQHtVEAzfg)! Please find the meetup slides from vLLM team [here](https://docs.google.com/presentation/d/1REHvfQMKGnvz6p3Fd23HhSO4c8j5WPGZV0bKYLwnHyQ/edit?usp=sharing).
-- [2025/03] We hosted [the East Coast vLLM Meetup](https://lu.ma/7mu4k4xx)! Please find the meetup slides [here](https://docs.google.com/presentation/d/1NHiv8EUFF1NLd3fEYODm56nDmL26lEeXCaDgyDlTsRs/edit#slide=id.g31441846c39_0_0).
-- [2025/02] We hosted [the ninth vLLM meetup](https://lu.ma/h7g3kuj9) with Meta! Please find the meetup slides from vLLM team [here](https://docs.google.com/presentation/d/1jzC_PZVXrVNSFVCW-V4cFXb6pn7zZ2CyP_Flwo05aqg/edit?usp=sharing) and AMD [here](https://drive.google.com/file/d/1Zk5qEJIkTmlQ2eQcXQZlljAx3m9s7nwn/view?usp=sharing). The slides from Meta will not be posted.
-- [2025/01] We hosted [the eighth vLLM meetup](https://lu.ma/zep56hui) with Google Cloud! Please find the meetup slides from vLLM team [here](https://docs.google.com/presentation/d/1epVkt4Zu8Jz_S5OhEHPc798emsYh2BwYfRuDDVEF7u4/edit?usp=sharing), and Google Cloud team [here](https://drive.google.com/file/d/1h24pHewANyRL11xy5dXUbvRC9F9Kkjix/view?usp=sharing).
-- [2024/12] vLLM joins [pytorch ecosystem](https://pytorch.org/blog/vllm-joins-pytorch)! Easy, Fast, and Cheap LLM Serving for Everyone!
-- [2024/11] We hosted [the seventh vLLM meetup](https://lu.ma/h0qvrajz) with Snowflake! Please find the meetup slides from vLLM team [here](https://docs.google.com/presentation/d/1e3CxQBV3JsfGp30SwyvS3eM_tW-ghOhJ9PAJGK6KR54/edit?usp=sharing), and Snowflake team [here](https://docs.google.com/presentation/d/1qF3RkDAbOULwz9WK5TOltt2fE9t6uIc_hVNLFAaQX6A/edit?usp=sharing).
-- [2024/10] We have just created a developer slack ([slack.vllm.ai](https://slack.vllm.ai)) focusing on coordinating contributions and discussing features. Please feel free to join us there!
-- [2024/10] Ray Summit 2024 held a special track for vLLM! Please find the opening talk slides from the vLLM team [here](https://docs.google.com/presentation/d/1B_KQxpHBTRa_mDF-tR6i8rWdOU5QoTZNcEg2MKZxEHM/edit?usp=sharing). Learn more from the [talks](https://www.youtube.com/playlist?list=PLzTswPQNepXl6AQwifuwUImLPFRVpksjR) from other vLLM contributors and users!
-- [2024/09] We hosted [the sixth vLLM meetup](https://lu.ma/87q3nvnh) with NVIDIA! Please find the meetup slides [here](https://docs.google.com/presentation/d/1wrLGwytQfaOTd5wCGSPNhoaW3nq0E-9wqyP7ny93xRs/edit?usp=sharing).
-- [2024/07] We hosted [the fifth vLLM meetup](https://lu.ma/lp0gyjqr) with AWS! Please find the meetup slides [here](https://docs.google.com/presentation/d/1RgUD8aCfcHocghoP3zmXzck9vX3RCI9yfUAB2Bbcl4Y/edit?usp=sharing).
-- [2024/07] In partnership with Meta, vLLM officially supports Llama 3.1 with FP8 quantization and pipeline parallelism! Please check out our blog post [here](https://blog.vllm.ai/2024/07/23/llama31.html).
-- [2024/06] We hosted [the fourth vLLM meetup](https://lu.ma/agivllm) with Cloudflare and BentoML! Please find the meetup slides [here](https://docs.google.com/presentation/d/1iJ8o7V2bQEi0BFEljLTwc5G1S10_Rhv3beed5oB0NJ4/edit?usp=sharing).
-- [2024/04] We hosted [the third vLLM meetup](https://robloxandvllmmeetup2024.splashthat.com/) with Roblox! Please find the meetup slides [here](https://docs.google.com/presentation/d/1A--47JAK4BJ39t954HyTkvtfwn0fkqtsL8NGFuslReM/edit?usp=sharing).
-- [2024/01] We hosted [the second vLLM meetup](https://lu.ma/ygxbpzhl) with IBM! Please find the meetup slides [here](https://docs.google.com/presentation/d/12mI2sKABnUw5RBWXDYY-HtHth4iMSNcEoQ10jDQbxgA/edit?usp=sharing).
-- [2023/10] We hosted [the first vLLM meetup](https://lu.ma/first-vllm-meetup) with a16z! Please find the meetup slides [here](https://docs.google.com/presentation/d/1QL-XPFXiFpDBh86DbEegFXBXFXjix4v032GhShbKf3s/edit?usp=sharing).
-- [2023/08] We would like to express our sincere gratitude to [Andreessen Horowitz](https://a16z.com/2023/08/30/supporting-the-open-source-ai-community/) (a16z) for providing a generous grant to support the open-source development and research of vLLM.
-- [2023/06] We officially released vLLM! FastChat-vLLM integration has powered [LMSYS Vicuna and Chatbot Arena](https://chat.lmsys.org) since mid-April. Check out our [blog post](https://vllm.ai).
-
-</details>
+3. Chat with vLLM.
+    ```bash
+    (board)# python3 vllm/examples/online_serving/openai_chat_completion_client.py
+    ```
 
 ---
-## About
 
-vLLM is a fast and easy-to-use library for LLM inference and serving.
+## Run vLLM with the LLaVA-OneVision-Qwen2-7B-OV-Chat Model
+1. Download the model artifacts and additional configuration files.
+    Users must download the model artifacts from [Ambarella's LLaVA-OneVision](https://huggingface.com/Ambarella/LLaVA-OneVision) and additional configuration files listed below for the LLM part from [LMMs-Lab's LLaVA-OneVision](https://huggingface.com/lmms-lab/llava-onevision-qwen2-7b-ov-chat) on Hugging Face to the model directory.
+    ```bash
+    (board)# ls <model_path_llava_onevision>
+      added_tokens.json
+      config.json
+      generation_config.json
+      special_tokens_map.json
+      tokenizer_config.json
+    ```
 
-Originally developed in the [Sky Computing Lab](https://sky.cs.berkeley.edu) at UC Berkeley, vLLM has evolved into a community-driven project with contributions from both academia and industry.
+    Users must also download additional configuration files for the vision transformer (ViT) part from [Google's SigLIP](https://huggingface.com/google/siglip-so400m-patch14-384) on Hugging Face to the model directory.
+    ```bash
+    (board)# ls <model_path_llava_onevision>
+      preprocessor_config.json
+    ```
 
-vLLM is fast with:
+    Then update the `architectures` and `model_type` fields in `config.json`:
+    ```bash
+    (board)# vi <model_path_llava_onevision>/config.json
+      "architectures": [
+        "LlavaQwenForCausalLM"
+      ],
+      "model_type": "llava_qwen",
+    ```
+    Change it to:
+    ```bash
+    (board)# vi <model_path_llava_onevision>/config.json
+      "architectures": [
+        "LlavaOnevisionForConditionalGeneration"
+      ],
+      "model_type": "llava_onevision",
+    ```
 
-- State-of-the-art serving throughput
-- Efficient management of attention key and value memory with [**PagedAttention**](https://blog.vllm.ai/2023/06/20/vllm.html)
-- Continuous batching of incoming requests
-- Fast model execution with CUDA/HIP graph
-- Quantizations: [GPTQ](https://arxiv.org/abs/2210.17323), [AWQ](https://arxiv.org/abs/2306.00978), [AutoRound](https://arxiv.org/abs/2309.05516), INT4, INT8, and FP8
-- Optimized CUDA kernels, including integration with FlashAttention and FlashInfer
-- Speculative decoding
-- Chunked prefill
+2. Run vLLM as an OpenAI-compatible server for the `llava_onevision` model in multi-image mode.
+    ```bash
+    ## Optional: vLLM_0.9.2 supports the V0 architecture on CPU
+    (board)# export VLLM_CONFIG_ROOT=/tmp/
+    (board)# export VLLM_CPU_OMP_THREADS_BIND="all"
+    (board)# export VLLM_USE_V1=0
+    (board)# export VLLM_NO_NUMA=1
 
-**Performance benchmark**: We include a performance benchmark at the end of [our blog post](https://blog.vllm.ai/2024/09/05/perf-update.html). It compares the performance of vLLM against other LLM serving engines ([TensorRT-LLM](https://github.com/NVIDIA/TensorRT-LLM), [SGLang](https://github.com/sgl-project/sglang) and [LMDeploy](https://github.com/InternLM/lmdeploy)). The implementation is under [nightly-benchmarks folder](.buildkite/nightly-benchmarks/) and you can [reproduce](https://github.com/vllm-project/vllm/issues/8176) this benchmark using our one-click runnable script.
+    (board)# cd $WORKSPACE
+    (board)# vllm serve <model_path_llava_onevision> \
+      --served-model-name llava_onevision    \
+      --host 127.0.0.1                       \
+      --port 8000                            \
+      --api-key EMPTY                        \
+      --model-impl transformers_amba_ext_vlm \
+      --load-format dummy                    \
+      --limit-mm-per-prompt '{"image": 8}'   \
+      --swap-space 1
+    ```
+3. Run vLLM as an OpenAI-compatible server for the `llava_onevision` model in single-image mode at high resolution (1280x720).
+    Update `<model_path>/preprocessor_config.json`:
+    ```json
+    "size": {
+      "height": 720,
+      "width": 1280
+    }
+    ```
 
-vLLM is flexible and easy to use with:
+    Then run:
+    ```bash
+    ## Optional: vLLM_0.9.2 supports the V0 architecture on CPU
+    (board)# export VLLM_CONFIG_ROOT=/tmp/
+    (board)# export VLLM_CPU_OMP_THREADS_BIND="all"
+    (board)# export VLLM_USE_V1=0
+    (board)# export VLLM_NO_NUMA=1
 
-- Seamless integration with popular Hugging Face models
-- High-throughput serving with various decoding algorithms, including *parallel sampling*, *beam search*, and more
-- Tensor parallelism and pipeline parallelism support for distributed inference
-- Streaming outputs
-- OpenAI-compatible API server
-- Support NVIDIA GPUs, AMD CPUs and GPUs, Intel CPUs and GPUs, PowerPC CPUs, TPU, and AWS Neuron
-- Prefix caching support
-- Multi-LoRA support
+    (board)# cd $WORKSPACE
+    (board)# vllm serve <model_path_llava_onevision> \
+      --served-model-name llava_onevision    \
+      --host 127.0.0.1                       \
+      --port 8000                            \
+      --api-key EMPTY                        \
+      --model-impl transformers_amba_ext_vlm \
+      --load-format dummy                    \
+      --hf-overrides '{"vit_mode": 0}'       \
+      --swap-space 1
+    ```
+4. Chat with vLLM.
+    ```bash
+    (board)# python3 vllm/examples/online_serving/openai_chat_completion_client_for_vlm.py \
+      --model_name llava_onevision \
+      --input image.jpg     \
+      --prompt "what can you see from this pic?" \
+      --stream
+    ```
+---
+## Run vLLM with the InternVL3_5-2B-Instruct Model
+1. Download the model artifacts and additional configuration files.
+    Users must download the model artifacts from [Ambarella's InternVL3.5](https://huggingface.com/Ambarella/InternVL3.5) and additional configuration files listed below from [OpenGVLab's InternVL3_5-2B](https://huggingface.com/OpenGVLab/InternVL3_5-2B) on Hugging Face to the model directory.
+    ```bash
+    (board)# ls <model_path_InternVL3_5>
+      added_tokens.json
+      config.json
+      configuration_intern_vit.py
+      configuration_internvl_chat.py
+      conversation.py
+      generation_config.json
+      modeling_intern_vit.py
+      modeling_internvl_chat.py
+      preprocessor_config.json
+      special_tokens_map.json
+      tokenizer_config.json
+      vocab.json
+    ```
+    Then add a new `preprocessor_config.json` with the configurations below to the model directory.
+    ```bash
+    {
+      "crop_size": null,
+      "crop_to_patches": false,
+      "data_format": "channels_first",
+      "default_to_square": true,
+      "device": null,
+      "do_center_crop": null,
+      "do_convert_rgb": true,
+      "do_normalize": true,
+      "do_rescale": true,
+      "do_resize": true,
+      "image_mean": [
+        0.485,
+        0.456,
+        0.406
+      ],
+      "image_processor_type": "GotOcr2ImageProcessorFast",
+      "image_std": [
+        0.229,
+        0.224,
+        0.225
+      ],
+      "input_data_format": null,
+      "max_patches": 12,
+      "min_patches": 1,
+      "processor_class": "InternVLProcessor",
+      "resample": 3,
+      "rescale_factor": 0.00392156862745098,
+      "return_tensors": null,
+      "size": {
+        "height": 448,
+        "width": 448
+      }
+    }
+    ```
+2. Run vLLM as an OpenAI-compatible server for the `InternVL3` model in image mode.
+    ```bash
+    ## Optional: vLLM_0.9.2 supports the V0 architecture on CPU
+    (board)# export VLLM_CONFIG_ROOT=/tmp/
+    (board)# export VLLM_CPU_OMP_THREADS_BIND="all"
+    (board)# export VLLM_USE_V1=0
+    (board)# export VLLM_NO_NUMA=1
 
-vLLM seamlessly supports most popular open-source models on HuggingFace, including:
-- Transformer-like LLMs (e.g., Llama)
-- Mixture-of-Expert LLMs (e.g., Mixtral, Deepseek-V2 and V3)
-- Embedding Models (e.g., E5-Mistral)
-- Multi-modal LLMs (e.g., LLaVA)
+    (board)# cd $WORKSPACE
+    ## Users must check the name of vision model in <model_path> and set it with an environment variable "AMBA_EXT_VLM_VIT_NAME"
+    (board)# export AMBA_EXT_VLM_VIT_NAME="vision_model.bin"
+    (board)# vllm serve <model_path_InternVL3_5> \
+      --served-model-name internvl3_5           \
+      --host 127.0.0.1                       \
+      --port 8000                            \
+      --api-key EMPTY                        \
+      --model-impl transformers_amba_ext_vlm \
+      --load-format dummy                    \
+      --swap-space 0.5                       \
+      --trust-remote-code
+    ```
+3. Chat with vLLM.
+    ```bash
+    (board)# python3 vllm/examples/online_serving/openai_chat_completion_client_for_vlm.py \
+      --model_name internvl3_5 \
+      --input image.jpg     \
+      --prompt "what can you see from this pic?" \
+      --stream
+    ```
+---
 
-Find the full list of supported models [here](https://docs.vllm.ai/en/latest/models/supported_models.html).
+## Run vLLM with the SmolVLM2 Model
+1. Download the model artifacts and additional configuration files.
+    Users must download the model artifacts from [Ambarella's SmolVLM2](https://huggingface.com/Ambarella/SmolVLM2) and additional configuration files listed below from [HuggingFaceTB's SmolVLM2-500M-Video](https://huggingface.com/HuggingFaceTB/SmolVLM2-500M-Video-Instruct) on Hugging Face to the model directory.
+    ```bash
+    (board)# ls <model_path_SmolVLM2>
+      added_tokens.json
+      chat_template.json
+      config.json
+      generation_config.json
+      preprocessor_config.json
+      processor_config.json
+      special_tokens_map.json
+      tokenizer_config.json
+      tokenizer.json
+      vocab.json
+    ```
+    Then update the `size` field in `preprocessor_config.json` as a unified pre-processor is used for all VLM models.
+    ```
+    "size": {
+          "longest_edge": 2048,
+    }
+    ```
+    Change to:
+    ```
+    "size": {
+          "height": 512,
+          "width": 512
+    }
+    ```
+2. Run vLLM as an OpenAI-compatible server for the `SmolVLM2` model in image mode.
+    ```bash
+    ## Optional: vLLM_0.9.2 supports the V0 architecture on CPU
+    (board)# export VLLM_CONFIG_ROOT=/tmp/
+    (board)# export VLLM_CPU_OMP_THREADS_BIND="all"
+    (board)# export VLLM_USE_V1=0
+    (board)# export VLLM_NO_NUMA=1
 
-## Getting Started
+    (board)# cd $WORKSPACE
+    ## Users must check the name of vision model in <model_path> and set it with an environment variable "AMBA_EXT_VLM_VIT_NAME"
+    (board)# export AMBA_EXT_VLM_VIT_NAME="vision_model.bin"
+    (board)# vllm serve <model_path_SmolVLM2> \
+      --served-model-name SmolVLM2           \
+      --host 127.0.0.1                       \
+      --port 8000                            \
+      --api-key EMPTY                        \
+      --model-impl transformers_amba_ext_vlm \
+      --load-format dummy                    \
+      --hf-overrides '{"vit_mode": 0}'       \
+      --swap-space 0.5
+    ```
+3. Chat with vLLM.
+    ```bash
+    (board)# python3 vllm/examples/online_serving/openai_chat_completion_client_for_vlm.py \
+      --model_name SmolVLM2 \
+      --input image.jpg     \
+      --prompt "what can you see from this pic?" \
+      --stream
+    ```
+---
 
-Install vLLM with `pip` or [from source](https://docs.vllm.ai/en/latest/getting_started/installation/gpu/index.html#build-wheel-from-source):
+# 🐞Quality Assurance (QA)
+1. vLLM v0.9.2 will install the latest version with its dependency packages, which will cause some unknown issues. Users can reinstall the lower version for packages, such as `prometheus-fastapi-instrumentator` and `mistral-common`. For the suitable version, users can choose the lowest version from the vLLM requirements text.
 
-```bash
-pip install vllm
-```
+2. How to enable vLLM with remote procedure call (RPC) mode for the shepherd library?
+    Users must add `device_ip` and `device_port` for `--hf-overrides`, as shown below. Refer to the `README.md` in `transformers_amba_ext` for more information.
+    ```
+    --hf-overrides '{"device_ip": "${BOARD_IP}", "device_port":8890}'
+    ```
 
-Visit our [documentation](https://docs.vllm.ai/en/latest/) to learn more.
-- [Installation](https://docs.vllm.ai/en/latest/getting_started/installation.html)
-- [Quickstart](https://docs.vllm.ai/en/latest/getting_started/quickstart.html)
-- [List of Supported Models](https://docs.vllm.ai/en/latest/models/supported_models.html)
+3. How to call a remote Ambarella X7 through libcrt?
+    Pass `backend` and `device_id` in the same `--hf-overrides` object. `backend` must be `libcrt`. `device_id` is the remote X7 index. `transformers_amba_ext` and `transformers_amba_ext_vlm` both forward these two fields.
+    ```
+    --hf-overrides '{"backend": "libcrt", "device_id": 0}'
+    ```
 
-## Contributing
+# 📜 History
+- **2025-07-01**: Added vLLM with LLM model support for Ambarella SoCs
+- **2025-09-01**: Added vLLM with embedding model (`Qwen3-Embedding-4B`) support for Ambarella SoCs
+- **2025-12-01**: Added vLLM with VLM model (`llava-onevision`) support for Ambarella SoCs
+- **2025-12-05**: Optimized KV cache management to reduce CPU memory usage on Ambarella platforms
+- **2026-01-20**: Added vLLM with VLM model (`InternVL3_5-2B`) support for Ambarella SoCs
+- **2026-06-25**: Added vLLM with VLM model (`Qwen3-VL-2B`) support for Ambarella SoCs
+- **2026-07-23**: Added vLLM with VLM model (`Qwen3_5-VL-2B`) support for Ambarella SoCs
+- **2026-08-14**: Added vLLM with VLM model (`SmolVLM2`) support for Ambarella SoCs
+- **2026-10-26**: Added vLLM with LFM2.5 VL (`Lfm2Vl`) and LFM2.5 audio (`Lfm2Audio`) support for Ambarella SoCs
 
-We welcome and value any contributions and collaborations.
-Please check out [Contributing to vLLM](https://docs.vllm.ai/en/latest/contributing/index.html) for how to get involved.
-
-## Sponsors
-
-vLLM is a community project. Our compute resources for development and testing are supported by the following organizations. Thank you for your support!
-
-<!-- Note: Please sort them in alphabetical order. -->
-<!-- Note: Please keep these consistent with docs/community/sponsors.md -->
-Cash Donations:
-- a16z
-- Dropbox
-- Sequoia Capital
-- Skywork AI
-- ZhenFund
-
-Compute Resources:
-- AMD
-- Anyscale
-- AWS
-- Crusoe Cloud
-- Databricks
-- DeepInfra
-- Google Cloud
-- Intel
-- Lambda Lab
-- Nebius
-- Novita AI
-- NVIDIA
-- Replicate
-- Roblox
-- RunPod
-- Trainy
-- UC Berkeley
-- UC San Diego
-
-Slack Sponsor: Anyscale
-
-We also have an official fundraising venue through [OpenCollective](https://opencollective.com/vllm). We plan to use the fund to support the development, maintenance, and adoption of vLLM.
-
-## Citation
-
-If you use vLLM for your research, please cite our [paper](https://arxiv.org/abs/2309.06180):
-
-```bibtex
-@inproceedings{kwon2023efficient,
-  title={Efficient Memory Management for Large Language Model Serving with PagedAttention},
-  author={Woosuk Kwon and Zhuohan Li and Siyuan Zhuang and Ying Sheng and Lianmin Zheng and Cody Hao Yu and Joseph E. Gonzalez and Hao Zhang and Ion Stoica},
-  booktitle={Proceedings of the ACM SIGOPS 29th Symposium on Operating Systems Principles},
-  year={2023}
-}
-```
-
-## Contact Us
-
-- For technical questions and feature requests, please use GitHub [Issues](https://github.com/vllm-project/vllm/issues) or [Discussions](https://github.com/vllm-project/vllm/discussions)
-- For discussing with fellow users, please use the [vLLM Forum](https://discuss.vllm.ai)
-- coordinating contributions and development, please use [Slack](https://slack.vllm.ai)
-- For security disclosures, please use GitHub's [Security Advisories](https://github.com/vllm-project/vllm/security/advisories) feature
-- For collaborations and partnerships, please contact us at [vllm-questions@lists.berkeley.edu](mailto:vllm-questions@lists.berkeley.edu)
-
-## Media Kit
-
-- If you wish to use vLLM's logo, please refer to [our media kit repo](https://github.com/vllm-project/media-kit)

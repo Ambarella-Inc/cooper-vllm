@@ -121,6 +121,8 @@ class ModelImpl(str, enum.Enum):
     AUTO = "auto"
     VLLM = "vllm"
     TRANSFORMERS = "transformers"
+    TRANSFORMERS_AMBA_EXT = "transformers_amba_ext"
+    TRANSFORMERS_AMBA_EXT_VLM = "transformers_amba_ext_vlm"
 
 
 def get_attr_docs(cls: type[Any]) -> dict[str, str]:
@@ -416,7 +418,9 @@ class ModelConfig:
     back to the Transformers implementation if no vLLM implementation is
     available.\n
     - "vllm" will use the vLLM model implementation.\n
-    - "transformers" will use the Transformers model implementation."""
+    - "transformers" will use the Transformers model implementation.\n
+    - "transformers_amba_ext" will use the TransformersAmbaExt model implementation.\n
+    - "transformers_amba_ext_vlm" will use the TransformersAmbaExtVLM model implementation."""
 
     def compute_hash(self) -> str:
         """

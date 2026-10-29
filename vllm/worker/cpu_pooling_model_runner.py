@@ -15,6 +15,8 @@ from vllm.sequence import (IntermediateTensors, PoolerOutput, SequenceData,
 from vllm.worker.cpu_model_runner import (CPUModelRunnerBase, ModelInputForCPU,
                                           ModelInputForCPUBuilder)
 
+from vllm.logger import init_logger
+logger = init_logger(__name__)
 
 @dataclasses.dataclass(frozen=True)
 class ModelInputForCPUWithPoolingMetadata(ModelInputForCPU):
@@ -123,3 +125,61 @@ class CPUPoolingModelRunner(
         )
 
         return pooling_metadata
+
+class CPUPoolingModelAmbaRunner(CPUPoolingModelRunner):
+
+    @torch.inference_mode()
+    def execute_model(
+        self,
+        model_input: ModelInputForCPUWithPoolingMetadata,
+        kv_caches: List[torch.Tensor],
+        intermediate_tensors: Optional[IntermediateTensors] = None,
+        num_steps: int = 1,
+    ) -> Optional[Union[List[PoolerOutput], IntermediateTensors]]:
+        if num_steps > 1:
+            raise ValueError(
+                "CPU worker does not support multi-step execution.")
+
+        model_executable = self.model
+        cross_enc_kwargs = {}
+        if model_input.token_type_ids is not None:
+            cross_enc_kwargs["token_type_ids"] = model_input.token_type_ids
+        execute_model_kwargs = {
+            "input_ids":
+            model_input.input_tokens,
+            "positions":
+            model_input.input_positions,
+            **MultiModalKwargs.as_kwargs(
+                model_input.multi_modal_kwargs or {},
+                device=self.device,
+            ),
+            **cross_enc_kwargs,
+            "intermediate_tensors":
+            intermediate_tensors,
+        }
+
+        # logger.info(f"model_input: {model_input}")
+        # logger.info(f"num_prefill: {model_input.attn_metadata.num_prefills}, "
+        #     f"num_prefill_tokens： {model_input.attn_metadata.num_prefill_tokens}")
+        cur_token_pos = 0
+        ## from vllm_config.model_config.hf_config.hidden_size
+        hidden_size = model_executable.config.hidden_size
+        hidden_states = torch.zeros(
+            (model_input.attn_metadata.num_prefill_tokens, hidden_size), dtype=torch.float16)
+
+        for i in range(model_input.attn_metadata.num_prefills):
+            cur_input_len = model_input.attn_metadata.seq_lens[i]
+            cur_input_ids = model_input.input_tokens[cur_token_pos:cur_token_pos+cur_input_len]
+            _hidden_states = model_executable.generate_embedding(cur_input_ids)
+            hidden_states[cur_token_pos:cur_token_pos+cur_input_len, :] = _hidden_states
+            cur_token_pos += cur_input_len
+            model_executable.reset()
+
+        # Only perform pooling in the driver worker.
+        if not self.is_driver_worker:
+            return []
+
+        return [
+            self.model.pooler(hidden_states=hidden_states,
+                              pooling_metadata=model_input.pooling_metadata)
+        ]

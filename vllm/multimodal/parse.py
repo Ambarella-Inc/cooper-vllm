@@ -319,7 +319,8 @@ class MultiModalDataParser:
         self,
         *,
         target_sr: Optional[float] = None,
-        audio_resample_method: Literal["librosa", "scipy"] = "librosa",
+        audio_resample_method: Literal["librosa", "scipy",
+                                       "torchaudio"] = "librosa",
     ) -> None:
         super().__init__()
 

@@ -215,10 +215,32 @@ def resolve_transformers_arch(model_config: ModelConfig,
             architectures[i] = "TransformersForCausalLM"
     return architectures
 
+def resolve_transformers_amba_ext_arch(model_config: ModelConfig,
+                              architectures: list[str]):
+    for i, arch in enumerate(architectures):
+        if arch == "TransformersAmbaExtForCausalLM":
+            continue
+
+        if model_config.model_impl == ModelImpl.TRANSFORMERS_AMBA_EXT:
+            architectures[i] = "TransformersAmbaExtForCausalLM"
+        elif model_config.model_impl == ModelImpl.TRANSFORMERS_AMBA_EXT_VLM:
+            architectures[i] = "TransformersAmbaExtForVLM"
+
+        if model_config.model_impl == ModelImpl.AUTO:
+            logger.warning(
+                "%s has no vLLM implementation, falling back to transformers_amba_ext "
+                "implementation. Some features may not be supported and "
+                "performance may not be optimal.", arch)
+            architectures[i] = "TransformersAmbaExtForCausalLM"
+    return architectures
 
 def get_model_architecture(
         model_config: ModelConfig) -> tuple[type[nn.Module], str]:
-    architectures = getattr(model_config.hf_config, "architectures", [])
+    # Copy so resolve_*_arch mutations do not overwrite hf_config.architectures.
+    # transformers_amba_ext_vlm still needs the original arch (e.g. Lfm2Audio*)
+    # to decide image vs audio modality limits.
+    architectures = list(
+        getattr(model_config.hf_config, "architectures", None) or [])
 
     # Special handling for quantized Mixtral.
     # FIXME(woosuk): This is a temporary hack.
@@ -229,7 +251,11 @@ def get_model_architecture(
     vllm_supported_archs = ModelRegistry.get_supported_archs()
     vllm_not_supported = not any(arch in vllm_supported_archs
                                  for arch in architectures)
-    if (model_config.model_impl == ModelImpl.TRANSFORMERS or
+    if (model_config.model_impl == ModelImpl.TRANSFORMERS_AMBA_EXT or
+          model_config.model_impl == ModelImpl.TRANSFORMERS_AMBA_EXT_VLM or
+            model_config.model_impl != ModelImpl.VLLM and vllm_not_supported):
+        architectures: list[str] = resolve_transformers_amba_ext_arch(model_config, architectures)
+    elif (model_config.model_impl == ModelImpl.TRANSFORMERS or
             model_config.model_impl != ModelImpl.VLLM and vllm_not_supported):
         architectures = resolve_transformers_arch(model_config, architectures)
     elif (model_config.quantization is not None
@@ -256,7 +282,7 @@ def get_architecture_class_name(model_config: ModelConfig) -> str:
 class ParamMapping:
     """
     A class to handle parameter mapping for model weight loading.
-    It creates a bidirectional mapping between packed parameters and their 
+    It creates a bidirectional mapping between packed parameters and their
     constituent parts.
     """
     packed_mapping: dict[str, list[str]]

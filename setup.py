@@ -685,7 +685,7 @@ else:
 setup(
     # static metadata should rather go in pyproject.toml
     version=get_vllm_version(),
-    ext_modules=ext_modules,
+    ext_modules=[], #ext_modules,
     install_requires=get_requirements(),
     extras_require={
         "bench": ["pandas", "datasets"],

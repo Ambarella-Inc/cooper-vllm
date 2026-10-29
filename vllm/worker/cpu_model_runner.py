@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
-
+import numpy as np
 import dataclasses
 import weakref
 from collections import defaultdict
@@ -21,6 +21,7 @@ from vllm.lora.worker_manager import LRUCacheWorkerLoRAManager
 from vllm.model_executor import SamplingMetadata
 from vllm.model_executor.layers.rotary_embedding import MRotaryEmbedding
 from vllm.model_executor.layers.sampler import SamplerOutput, get_sampler
+from vllm.sequence import CompletionSequenceGroupOutput, SequenceOutput, Logprob
 from vllm.model_executor.model_loader import get_model
 from vllm.model_executor.models import supports_lora, supports_multimodal
 from vllm.multimodal import (BatchedTensorInputs, MultiModalKwargs,
@@ -92,6 +93,7 @@ class ModelInputForCPUWithSamplingMetadata(ModelInputForCPU):
     """
     sampling_metadata: Optional["SamplingMetadata"] = None
     is_prompt: Optional[bool] = None
+    request_id: Optional[bool] = None
 
     def as_broadcastable_tensor_dict(self) -> Dict[str, Any]:
         tensor_dict = {
@@ -482,6 +484,8 @@ class CPUModelRunnerBase(ModelRunnerBase[TModelInputForCPU]):
             # multi-step model runner does not have `_builder_cls`
             self.builder = self._builder_cls(weakref.proxy(self))
 
+        self.last_request_id = None
+
     def load_model(self) -> None:
         self.model = get_model(vllm_config=self.vllm_config)
 
@@ -597,13 +601,15 @@ class CPUModelRunner(CPUModelRunnerBase[ModelInputForCPUWithSamplingMetadata]):
                                                      self.device,
                                                      pin_memory=False,
                                                      generators=generators)
-
         is_prompt = (seq_group_metadata_list[0].is_prompt
+                     if seq_group_metadata_list else None)
+        request_id = (seq_group_metadata_list[0].request_id
                      if seq_group_metadata_list else None)
         return dataclasses.replace(model_input,
                                    sampling_metadata=sampling_metadata,
                                    virtual_engine=virtual_engine,
-                                   is_prompt=is_prompt)
+                                   is_prompt=is_prompt,
+                                   request_id=request_id)
 
     @torch.no_grad()
     def execute_model(
@@ -669,3 +675,158 @@ class CPUModelRunner(CPUModelRunnerBase[ModelInputForCPUWithSamplingMetadata]):
 
     def generate_proposals(self, *args, **kwargs):
         return self.model.generate_proposals(*args, **kwargs)
+
+
+class CPUModelAmbaRunner(CPUModelRunner):
+    last_prompt_token_ids: Optional[np.ndarray] = None
+    last_decode_ids_size: Optional[int] = None
+
+    def _build_sampler_output(self, token_id: int) -> SamplerOutput:
+        seq_output = SequenceOutput(
+            parent_seq_id=0,
+            output_token=token_id,
+            output_embed=None,
+            logprobs={
+                token_id: Logprob(logprob=float("inf"), rank=None, decoded_token=None,)
+            },
+        )
+
+        seq_group_output = CompletionSequenceGroupOutput(
+            samples=[seq_output],
+            prompt_logprobs=None,
+        )
+
+        sampler_output = SamplerOutput(
+            outputs=[seq_group_output],
+            sampled_token_probs=None,
+            sampled_token_ids=None,
+            spec_decode_worker_metrics=None,
+        )
+
+        return sampler_output
+
+    def execute_model_vllm_sample(
+        self,
+        model_input: ModelInputForCPUWithSamplingMetadata,
+        previous_hidden_states: Optional[torch.Tensor] = None,
+    ) -> Optional[List[SamplerOutput]]:
+        model_executable = self.model
+
+        input_tokens = model_input.input_tokens
+        if model_input.is_prompt == True:
+            model_executable.reset()
+
+        multimodal_kwargs = {}
+        if model_input.multi_modal_kwargs is not None:
+            multimodal_kwargs = MultiModalKwargs.as_kwargs(
+                model_input.multi_modal_kwargs,
+                device=self.device,
+            )
+            input_tokens = model_executable.vit_process(input_tokens, **multimodal_kwargs)
+
+        execute_model_kwargs = {}
+        if previous_hidden_states is not None:
+            execute_model_kwargs.update(
+                {"previous_hidden_states": previous_hidden_states})
+
+        # Compute the logits.
+        logits = self.model.compute_logits(
+            input_tokens,
+            model_input.sampling_metadata,
+            **multimodal_kwargs)
+
+        # Only perform sampling in the driver worker.
+        if not self.is_driver_worker:
+            return []
+
+        # Sample the next token.
+        output = self.sampler(
+            logits=logits,
+            sampling_metadata=model_input.sampling_metadata,
+        )
+
+        return [output]
+
+    def execute_model_without_sample(
+        self,
+        model_input: ModelInputForCPUWithSamplingMetadata,
+        previous_hidden_states: Optional[torch.Tensor] = None,
+    ) -> Optional[List[SamplerOutput]]:
+        model_executable = self.model
+        input_tokens = model_input.input_tokens
+
+        is_new_user = False
+        if self.last_request_id is None or \
+            self.last_request_id != model_input.request_id:
+            self.last_request_id = model_input.request_id
+            is_new_user = True
+
+        if model_input.is_prompt == True:
+            if is_new_user == True:
+                model_executable.reset()
+                self.last_prompt_token_ids = None
+                self.last_decode_ids_size = 0
+
+            if self.last_prompt_token_ids is not None:
+                token_size = len(self.last_prompt_token_ids)
+                if torch.equal(input_tokens[:token_size], self.last_prompt_token_ids):
+                    input_tokens = input_tokens[(token_size+self.last_decode_ids_size+1):] #fixme: +1 for ending token
+                    model_executable.run_eos()
+
+                logger.info(f"model_input size: {len(model_input.input_tokens)}, "
+                    f"input_tokens size: {len(input_tokens)}, "
+                    f"last_prompt_token_ids: {token_size}, "
+                    f"last_decode_ids_size: {self.last_decode_ids_size}")
+
+        multimodal_kwargs = {}
+        if model_input.multi_modal_kwargs is not None and is_new_user == True:
+            multimodal_kwargs = MultiModalKwargs.as_kwargs(
+                model_input.multi_modal_kwargs,
+                device=self.device,
+            )
+            input_tokens = model_executable.vit_process(input_tokens, **multimodal_kwargs)
+
+        execute_model_kwargs = {}
+        if previous_hidden_states is not None:
+            execute_model_kwargs.update(
+                {"previous_hidden_states": previous_hidden_states})
+
+        token = self.model.generate_token(input_tokens,
+            positions=model_input.input_positions,
+            **multimodal_kwargs)
+        output = self._build_sampler_output(token)
+
+        if model_input.is_prompt == True:
+            self.last_prompt_token_ids = model_input.input_tokens
+            self.last_decode_ids_size = 0
+        else:
+            self.last_decode_ids_size += 1
+
+        return [output]
+
+    @torch.no_grad()
+    def execute_model(
+        self,
+        model_input: ModelInputForCPUWithSamplingMetadata,
+        kv_caches: List[torch.Tensor],
+        intermediate_tensors: Optional[IntermediateTensors] = None,
+        num_steps: int = 1,
+        previous_hidden_states: Optional[torch.Tensor] = None,
+    ) -> Optional[List[SamplerOutput]]:
+        logger.debug(f"model_input: {model_input}")
+        if num_steps > 1:
+            raise ValueError(
+                "CPU worker does not support multi-step execution.")
+
+        if self.lora_config:
+            assert model_input.lora_requests is not None
+            assert model_input.lora_mapping is not None
+            self.set_active_loras(model_input.lora_requests,
+                                  model_input.lora_mapping)
+
+        if self.model.no_vllm_sample is not None and self.model.no_vllm_sample == True:
+            output = self.execute_model_without_sample(model_input, previous_hidden_states)
+        else:
+            output = self.execute_model_vllm_sample(model_input, previous_hidden_states)
+
+        return output

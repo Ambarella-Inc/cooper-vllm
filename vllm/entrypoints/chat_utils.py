@@ -531,7 +531,9 @@ class BaseMultiModalItemTracker(ABC, Generic[_T]):
                 return "<image>"
             if model_type in ("mllama", "llama4"):
                 return "<|image|>"
-            if model_type in ("qwen2_vl", "qwen2_5_vl"):
+            # Add new model with qwen3_vl / qwen3_5 from latest vLLM to vLLM_0.9.2
+            # https://github.com/vllm-project/vllm/blob/v0.20.0/vllm/model_executor/models/qwen3_vl.py#L1052
+            if model_type in ("qwen2_vl", "qwen2_5_vl", "qwen3_vl", "qwen3_5"):
                 return "<|vision_start|><|image_pad|><|vision_end|>"
             if model_type == "qwen2_5_omni":
                 return "<|vision_start|><|IMAGE|><|vision_end|>"
@@ -543,6 +545,10 @@ class BaseMultiModalItemTracker(ABC, Generic[_T]):
                 return "<start_of_image>"
             if model_type == "kimi_vl":
                 return "<|media_start|>image<|media_content|><|media_pad|><|media_end|>" # noqa: E501
+            archs = [a.lower() for a in (getattr(hf_config, "architectures", None) or [])]
+            if any("lfm2" in arch and "vl" in arch for arch in archs):
+                # Must match HF LFM chat_template.jinja and amba_ext_vlm placeholder.
+                return "<image>"
 
             raise TypeError(f"Unknown {modality} model type: {model_type}")
         elif modality == "audio":
@@ -555,11 +561,18 @@ class BaseMultiModalItemTracker(ABC, Generic[_T]):
                         f"<|audio_bos|><|AUDIO|><|audio_eos|>")
             if model_type == "minicpmo":
                 return "(<audio>./</audio>)"
+            archs = [a.lower() for a in (getattr(hf_config, "architectures", None) or [])]
+            if any("lfm2" in arch and "audio" in arch for arch in archs):
+                # Kept through chat_template.jinja so vLLM can match the audio
+                # item. vit_process decodes and replaces it with <image>.
+                return "<|audio_start|>"
             raise TypeError(f"Unknown model type: {model_type}")
         elif modality == "video":
             if model_type == "internvl_chat":
                 return "<video>"
-            if model_type in ("qwen2_vl", "qwen2_5_vl"):
+            # Add new model with qwen3_vl / qwen3_5 from latest vLLM to vLLM_0.9.2
+            # https://github.com/vllm-project/vllm/blob/v0.20.0/vllm/model_executor/models/qwen3_vl.py#L1052
+            if model_type in ("qwen2_vl", "qwen2_5_vl", "qwen3_vl", "qwen3_5"):
                 return "<|vision_start|><|video_pad|><|vision_end|>"
             if model_type == "qwen2_5_omni":
                 return "<|vision_start|><|VIDEO|><|vision_end|>"
